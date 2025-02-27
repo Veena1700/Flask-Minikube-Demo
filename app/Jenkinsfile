@@ -1,0 +1,84 @@
+pipeline {
+    agent any
+    stages {
+        stage('Clone Repository') {
+            steps {
+                // Clean workspace before starting
+                cleanWs()
+               
+                // Echo the current directory for verification
+                sh 'echo "Current directory: $PWD"'
+               
+                // Clone the repository into workspace instead of Jenkins home
+                sh '''
+                    echo "Checking if directory 'Flask-Minikube-Demo' exists"
+                    if [ -d "Flask-Minikube-Demo" ]; then
+                        echo "Directory already exists, removing it"
+                        rm -rf Flask-Minikube-Demo
+                    fi
+                   
+                    echo "Cloning the repository"
+                    git@github.com:Veena1700/Flask-Minikube-Demo.git
+                   
+                    echo "Repository cloned successfully!"
+                    ls -la Flask-Minikube-Demo
+                '''
+            }
+        }
+       
+        stage('Verify Clone') {
+            steps {
+                // Verify in the workspace where we have permissions
+                sh '''
+                    echo "Changing to the 'Flask-Minikube-Demo' directory"
+                    cd Flask-Minikube-Demo
+                    echo "Listing files in the 'Flask-Minikube-Demo' directory"
+                    ls -la
+                    echo "Checking Git status"
+                    git status
+                '''
+            }
+        }
+        stage('Start Minikube') {
+            steps {
+                echo 'Starting Minikube...'
+                sh 'minikube start || true'
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                echo 'Evaluating Docker environment for Minikube...'
+                sh 'eval $(minikube docker-env)'
+                echo 'Building Docker image for simple-flask:latest...'
+                sh 'cd app && docker build -t simple-flask:latest .'
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                echo 'Applying Kubernetes namespace...'
+                sh 'kubectl apply -f k8s/namespace.yaml'
+                echo 'Applying Kubernetes configmap...'
+                sh 'kubectl apply -f k8s/configmap.yaml'
+                echo 'Applying Kubernetes deployment...'
+                sh 'kubectl apply -f k8s/deployment.yaml'
+                echo 'Applying Kubernetes service...'
+                sh 'kubectl apply -f k8s/service.yaml'
+            }
+        }
+        stage('Verify Deployment') {
+            steps {
+                echo 'Verifying deployment status...'
+                sh 'kubectl -n flask-demo rollout status deployment/flask-app'
+                echo 'Accessing Minikube service URL...'
+                sh 'minikube service flask-app -n flask-demo --url'
+            }
+        }
+    }
+    post {
+        always {
+            echo 'Pipeline completed!'
+            echo 'Access: minikube service flask-app -n flask-demo --url'
+            echo 'Cleanup: kubectl delete namespace flask-demo'
+        }
+    }
+}
